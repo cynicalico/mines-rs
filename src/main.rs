@@ -3,9 +3,9 @@ use bevy::sprite::Anchor;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use rand::prelude::*;
 
-const TILE_SIZE: (u32, u32) = (7, 7);
-const SCALE: f32 = 10.0;
-const MINEFIELD_SIZE: (usize, usize) = (10, 10);
+const TILE_SIZE: (u32, u32) = (16, 16);
+const SCALE: f32 = 2.0;
+const MINEFIELD_SIZE: (usize, usize) = (30, 16);
 const BACKGROUND_COLOR: Color = Color::hsv(0.0, 0.0, 0.0);
 
 fn main() {
@@ -18,8 +18,8 @@ fn main() {
                         title: "mines-rs".into(),
                         position: WindowPosition::Centered(MonitorSelection::Primary),
                         resolution: WindowResolution::new(
-                            (MINEFIELD_SIZE.0 as u32 * (TILE_SIZE.0 + 2)) as f32 * SCALE,
-                            (MINEFIELD_SIZE.1 as u32 * (TILE_SIZE.1 + 2)) as f32 * SCALE,
+                            ((MINEFIELD_SIZE.0 as u32 + 2) * (TILE_SIZE.0)) as f32 * SCALE,
+                            ((MINEFIELD_SIZE.1 as u32 + 2) * (TILE_SIZE.1)) as f32 * SCALE,
                         ),
                         resizable: false,
                         ..default()
@@ -51,7 +51,7 @@ struct MinesSpriteSheet(Handle<TextureAtlasLayout>);
 
 impl FromWorld for MinesSpriteSheet {
     fn from_world(world: &mut World) -> Self {
-        let texture_atlas = TextureAtlasLayout::from_grid(TILE_SIZE.into(), 9, 2, None, None);
+        let texture_atlas = TextureAtlasLayout::from_grid(TILE_SIZE.into(), 4, 3, None, None);
         let mut texture_atlases = world
             .get_resource_mut::<Assets<TextureAtlasLayout>>()
             .unwrap();
@@ -163,7 +163,7 @@ fn random_shuffle_sprite(
     if timer.0.tick(time.delta()).just_finished() {
         let row = thread_rng().gen_range(0..minefield.cells.len());
         let col = thread_rng().gen_range(0..minefield.cells[row].len());
-        minefield.cells[row][col] = thread_rng().gen_range(0..18);
+        minefield.cells[row][col] = thread_rng().gen_range(0..12);
     }
 }
 
@@ -173,7 +173,7 @@ fn update_minefield_sprites(
 ) {
     for (mut texture, data) in sprites.iter_mut() {
         texture.index = if minefield.hidden[data.position.0][data.position.1] {
-            11
+            0
         } else {
             minefield.cells[data.position.0][data.position.1] as usize
         }
