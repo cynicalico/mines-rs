@@ -28,12 +28,23 @@ fn main() {
                 }),
         )
         .insert_resource(ClearColor(BACKGROUND_COLOR))
+        .insert_resource(RandomizeTimer(Timer::from_seconds(
+            0.25,
+            TimerMode::Repeating,
+        )))
         .init_resource::<Minefield>()
         .init_resource::<MinesSpriteSheet>()
         .add_systems(Startup, setup)
         .add_systems(Update, close_on_esc)
+        .add_systems(
+            Update,
+            (random_shuffle_sprite, update_minefield_sprites).chain(),
+        )
         .run();
 }
+
+#[derive(Resource)]
+struct RandomizeTimer(Timer);
 
 #[derive(Resource)]
 struct MinesSpriteSheet(Handle<TextureAtlasLayout>);
@@ -50,13 +61,13 @@ impl FromWorld for MinesSpriteSheet {
 
 #[derive(Resource)]
 struct Minefield {
-    cells: Vec<Vec<bool>>,
+    cells: Vec<Vec<u32>>,
     hidden: Vec<Vec<bool>>,
 }
 
 impl FromWorld for Minefield {
-    fn from_world(world: &mut World) -> Self {
-        let cells = vec![vec![false; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
+    fn from_world(_world: &mut World) -> Self {
+        let cells = vec![vec![0; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
         let hidden = vec![vec![false; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
 
         Self { cells, hidden }
@@ -68,6 +79,22 @@ struct MinefieldData {
     position: (usize, usize),
 }
 
+pub fn close_on_esc(
+    mut commands: Commands,
+    focused_windows: Query<(Entity, &Window)>,
+    input: Res<ButtonInput<KeyCode>>,
+) {
+    for (window, focus) in focused_windows.iter() {
+        if !focus.focused {
+            continue;
+        }
+
+        if input.just_pressed(KeyCode::Escape) {
+            commands.entity(window).despawn();
+        }
+    }
+}
+
 fn setup(
     mut commands: Commands,
     minefield: Res<Minefield>,
@@ -75,13 +102,21 @@ fn setup(
     window: Query<&Window, With<PrimaryWindow>>,
     asset_server: Res<AssetServer>,
 ) {
-    commands.spawn(Camera2dBundle::default());
+    let window = window.single();
+
+    commands.spawn(Camera2dBundle {
+        projection: OrthographicProjection {
+            far: 1000.0,
+            near: -1000.0,
+            viewport_origin: Vec2::ZERO,
+            ..default()
+        },
+        ..default()
+    });
 
     let texture = asset_server.load("spritesheet.png");
 
-    let window = window.single();
-
-    let center = (0.0, 0.0);
+    let center = (window.width() / 2.0, window.height() / 2.0);
     let minefield_w = (MINEFIELD_SIZE.0 as u32 * TILE_SIZE.0) as f32 * SCALE;
     let minefield_h = (MINEFIELD_SIZE.1 as u32 * TILE_SIZE.1) as f32 * SCALE;
     let top_left = (
@@ -110,7 +145,7 @@ fn setup(
                 },
                 TextureAtlas {
                     layout: texture_atlas.0.clone(),
-                    index: 1,
+                    index: minefield.cells[row][col] as usize,
                 },
                 MinefieldData {
                     position: (row, col),
@@ -120,18 +155,27 @@ fn setup(
     }
 }
 
-pub fn close_on_esc(
-    mut commands: Commands,
-    focused_windows: Query<(Entity, &Window)>,
-    input: Res<ButtonInput<KeyCode>>,
+fn random_shuffle_sprite(
+    time: Res<Time>,
+    mut timer: ResMut<RandomizeTimer>,
+    mut minefield: ResMut<Minefield>,
 ) {
-    for (window, focus) in focused_windows.iter() {
-        if !focus.focused {
-            continue;
-        }
+    if timer.0.tick(time.delta()).just_finished() {
+        let row = thread_rng().gen_range(0..minefield.cells.len());
+        let col = thread_rng().gen_range(0..minefield.cells[row].len());
+        minefield.cells[row][col] = thread_rng().gen_range(0..18);
+    }
+}
 
-        if input.just_pressed(KeyCode::Escape) {
-            commands.entity(window).despawn();
+fn update_minefield_sprites(
+    mut sprites: Query<(&mut TextureAtlas, &MinefieldData)>,
+    minefield: Res<Minefield>,
+) {
+    for (mut texture, data) in sprites.iter_mut() {
+        texture.index = if minefield.hidden[data.position.0][data.position.1] {
+            11
+        } else {
+            minefield.cells[data.position.0][data.position.1] as usize
         }
     }
 }
