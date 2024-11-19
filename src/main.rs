@@ -11,8 +11,8 @@ const MINEFIELD_SIZE: (usize, usize) = (10, 10);
 const BORDER_SIZE: (f32, f32) = (8.0, 8.0);
 const TILE_SIZE: (f32, f32) = (16.0, 16.0);
 const CONTENT_WIDTH: f32 = (2.0 * BORDER_SIZE.0) + (MINEFIELD_SIZE.0 as f32 * TILE_SIZE.0);
-const CONTENT_HEIGHT: f32 = (5.0 * BORDER_SIZE.1) + (MINEFIELD_SIZE.1 as f32 * TILE_SIZE.1);
-const MINEFIELD_OFFSET: (f32, f32) = (BORDER_SIZE.0, CONTENT_HEIGHT - (BORDER_SIZE.1 * 4.0));
+const CONTENT_HEIGHT: f32 = (6.0 * BORDER_SIZE.1) + (MINEFIELD_SIZE.1 as f32 * TILE_SIZE.1);
+const MINEFIELD_OFFSET: (f32, f32) = (BORDER_SIZE.0, CONTENT_HEIGHT - (BORDER_SIZE.1 * 5.0));
 
 fn main() {
     App::new()
@@ -39,7 +39,10 @@ fn main() {
         .init_resource::<BorderSpriteSheet>()
         .add_systems(Startup, setup)
         .add_systems(Update, close_on_esc)
-        .add_systems(Update, ((handle_click, update_minefield_sprites).chain(),))
+        .add_systems(
+            Update,
+            ((handle_minefield_click, update_minefield_sprites).chain(),),
+        )
         .run();
 }
 
@@ -50,7 +53,7 @@ impl FromWorld for MinefieldSpriteSheet {
     fn from_world(world: &mut World) -> Self {
         let texture_atlas = TextureAtlasLayout::from_grid(
             UVec2::new(TILE_SIZE.0 as u32, TILE_SIZE.1 as u32),
-            4,
+            5,
             3,
             None,
             None,
@@ -64,19 +67,23 @@ impl FromWorld for MinefieldSpriteSheet {
 
 #[repr(usize)]
 enum MinefieldSpriteIndex {
-    Hidden,
-    Flag,
-    Mine,
-    Num, // Usage: MinefieldSpriteIndex::Num.into() + 1 = 4, which is the 1 tile
+    Num,
+    Hidden = 9,
+    Flag = 10,
+    Mine = 11,
+    MineHit = 12,
+    MineMissed = 13,
 }
 
 impl From<MinefieldSpriteIndex> for usize {
     fn from(value: MinefieldSpriteIndex) -> Self {
         match value {
-            MinefieldSpriteIndex::Hidden => 0,
-            MinefieldSpriteIndex::Flag => 1,
-            MinefieldSpriteIndex::Mine => 2,
-            MinefieldSpriteIndex::Num => 3,
+            MinefieldSpriteIndex::Num => 0,
+            MinefieldSpriteIndex::Hidden => 9,
+            MinefieldSpriteIndex::Flag => 10,
+            MinefieldSpriteIndex::Mine => 11,
+            MinefieldSpriteIndex::MineHit => 12,
+            MinefieldSpriteIndex::MineMissed => 13,
         }
     }
 }
@@ -122,7 +129,7 @@ impl FromWorld for BorderSpriteSheet {
             2,
             5,
             None,
-            Some((64, 0).into()),
+            Some((80, 0).into()),
         );
         let mut texture_atlases = world
             .get_resource_mut::<Assets<TextureAtlasLayout>>()
@@ -141,6 +148,7 @@ enum BorderSpriteIndex {
     TopRightCorner,
     BottomLeftCorner,
     BottomRightCorner,
+    Empty
 }
 
 impl From<BorderSpriteIndex> for usize {
@@ -154,6 +162,7 @@ impl From<BorderSpriteIndex> for usize {
             BorderSpriteIndex::TopRightCorner => 5,
             BorderSpriteIndex::BottomLeftCorner => 6,
             BorderSpriteIndex::BottomRightCorner => 7,
+            BorderSpriteIndex::Empty => 8,
         }
     }
 }
@@ -191,8 +200,8 @@ struct Minefield {
 
 impl FromWorld for Minefield {
     fn from_world(_world: &mut World) -> Self {
-        let cells = vec![vec![0; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
-        let hidden = vec![vec![false; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
+        let cells = vec![vec![MinefieldSpriteIndex::Num as usize as u32; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
+        let hidden = vec![vec![true; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
 
         Self { cells, hidden }
     }
@@ -262,7 +271,7 @@ fn setup(mut commands: Commands, minefield: Res<Minefield>) {
             index: BorderSpriteIndex::Hori,
             position: (
                 BORDER_SIZE.0 * (i as f32 + 1.0),
-                CONTENT_HEIGHT - (BORDER_SIZE.1 * 3.0),
+                CONTENT_HEIGHT - (BORDER_SIZE.1 * 4.0),
             )
                 .into(),
         });
@@ -274,8 +283,8 @@ fn setup(mut commands: Commands, minefield: Res<Minefield>) {
     }
 
     // vertical segments
-    for i in 0..(2 * MINEFIELD_SIZE.1 + 3) {
-        if i == 2 {
+    for i in 0..(2 * MINEFIELD_SIZE.1 + 4) {
+        if i == 3 {
             // skip the join
             continue;
         }
@@ -297,14 +306,14 @@ fn setup(mut commands: Commands, minefield: Res<Minefield>) {
 
     commands.queue(SpawnBorderSprite {
         index: BorderSpriteIndex::JoinVerticalLeft,
-        position: (0.0, CONTENT_HEIGHT - BORDER_SIZE.1 * 3.0).into(),
+        position: (0.0, CONTENT_HEIGHT - BORDER_SIZE.1 * 4.0).into(),
     });
 
     commands.queue(SpawnBorderSprite {
         index: BorderSpriteIndex::JoinVerticalRight,
         position: (
             CONTENT_WIDTH - BORDER_SIZE.0,
-            CONTENT_HEIGHT - BORDER_SIZE.1 * 3.0,
+            CONTENT_HEIGHT - BORDER_SIZE.1 * 4.0,
         )
             .into(),
     });
@@ -322,10 +331,11 @@ fn setup(mut commands: Commands, minefield: Res<Minefield>) {
     }
 }
 
-fn handle_click(
+fn handle_minefield_click(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     camera: Query<(&Camera, &GlobalTransform)>,
     window: Query<&Window>,
+    mut minefield: ResMut<Minefield>,
 ) {
     if let Ok((camera, camera_transform)) = camera.get_single()
         && let Ok(window) = window.get_single()
@@ -344,7 +354,9 @@ fn handle_click(
                     ((MINEFIELD_OFFSET.1 - pos.y) as u32 / TILE_SIZE.1 as u32) as usize;
                 let minefield_col =
                     ((pos.x - MINEFIELD_OFFSET.0) as u32 / TILE_SIZE.0 as u32) as usize;
-                info!("{}, {}", minefield_row, minefield_col);
+
+                minefield.hidden[minefield_row][minefield_col] = false;
+                // info!("{}, {}", minefield_row, minefield_col);
             }
         }
     }
@@ -357,9 +369,16 @@ fn update_minefield_sprites(
     for (ref mut sprite, data) in sprites.iter_mut() {
         if let Some(texture_atlas) = &mut sprite.texture_atlas {
             texture_atlas.index = if minefield.hidden[data.position.0][data.position.1] {
-                0
+                MinefieldSpriteIndex::Hidden.into()
             } else {
-                minefield.cells[data.position.0][data.position.1] as usize
+                match minefield.cells[data.position.0][data.position.1] {
+                    9 => MinefieldSpriteIndex::Hidden as usize,
+                    10 => MinefieldSpriteIndex::Flag as usize,
+                    11 => MinefieldSpriteIndex::Mine as usize,
+                    12 => MinefieldSpriteIndex::MineHit as usize,
+                    13 => MinefieldSpriteIndex::MineMissed as usize,
+                    n => MinefieldSpriteIndex::Num as usize + n as usize,
+                }
             }
         }
     }
