@@ -1,10 +1,11 @@
-use bevy::prelude::*;
-use bevy::sprite::Anchor;
-use bevy::window::{PrimaryWindow, WindowResolution};
+#![feature(let_chains)]
+
+use std::fmt::Debug;
+use bevy::{prelude::*, sprite::Anchor, window::{PrimaryWindow, WindowResolution}};
 use rand::prelude::*;
 
 const TILE_SIZE: (u32, u32) = (16, 16);
-const SCALE: f32 = 2.0;
+const SCALE: f32 = 1.0;
 const MINEFIELD_SIZE: (usize, usize) = (30, 16);
 const BACKGROUND_COLOR: Color = Color::hsv(0.0, 0.0, 0.0);
 
@@ -18,8 +19,8 @@ fn main() {
                         title: "mines-rs".into(),
                         position: WindowPosition::Centered(MonitorSelection::Primary),
                         resolution: WindowResolution::new(
-                            ((MINEFIELD_SIZE.0 as u32 + 2) * (TILE_SIZE.0)) as f32 * SCALE,
-                            ((MINEFIELD_SIZE.1 as u32 + 2) * (TILE_SIZE.1)) as f32 * SCALE,
+                            ((MINEFIELD_SIZE.0 as u32) * (TILE_SIZE.0)) as f32 * SCALE,
+                            ((MINEFIELD_SIZE.1 as u32) * (TILE_SIZE.1)) as f32 * SCALE,
                         ),
                         resizable: false,
                         ..default()
@@ -38,7 +39,10 @@ fn main() {
         .add_systems(Update, close_on_esc)
         .add_systems(
             Update,
-            (random_shuffle_sprite, update_minefield_sprites).chain(),
+            (
+                handle_click,
+                (random_shuffle_sprite, update_minefield_sprites).chain(),
+            ),
         )
         .run();
 }
@@ -164,6 +168,24 @@ fn random_shuffle_sprite(
         let row = thread_rng().gen_range(0..minefield.cells.len());
         let col = thread_rng().gen_range(0..minefield.cells[row].len());
         minefield.cells[row][col] = thread_rng().gen_range(0..12);
+    }
+}
+
+fn handle_click(
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
+    camera: Query<(&Camera, &GlobalTransform)>,
+    window: Query<&Window>,
+) {
+    if let Ok((camera, camera_transform)) = camera.get_single()
+        && let Ok(window) = window.get_single()
+        && let Some(pos) = window
+            .cursor_position()
+            .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
+            .map(|ray| ray.origin.truncate())
+    {
+        if mouse_button_input.just_pressed(MouseButton::Left) {
+            info!("{:?}", pos);
+        }
     }
 }
 
