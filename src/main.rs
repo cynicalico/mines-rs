@@ -1,15 +1,18 @@
 #![feature(let_chains)]
 
+use bevy::utils::HashSet;
 use bevy::{prelude::*, sprite::Anchor, window::WindowResolution};
 use rand::prelude::*;
 
 const BACKGROUND_COLOR: Color = Color::hsv(0.0, 0.0, 0.0);
 
-const SCALE: f32 = 2.0;
-const MINEFIELD_SIZE: (usize, usize) = (10, 10);
+const SCALE: f32 = 4.0;
+const MINEFIELD_SIZE: (usize, usize) = (8, 8);
+const MINE_COUNT: usize = 10;
 
 const BORDER_SIZE: (f32, f32) = (8.0, 8.0);
 const TILE_SIZE: (f32, f32) = (16.0, 16.0);
+const FACE_SIZE: (f32, f32) = (24.0, 24.0);
 const CONTENT_WIDTH: f32 = (2.0 * BORDER_SIZE.0) + (MINEFIELD_SIZE.0 as f32 * TILE_SIZE.0);
 const CONTENT_HEIGHT: f32 = (6.0 * BORDER_SIZE.1) + (MINEFIELD_SIZE.1 as f32 * TILE_SIZE.1);
 const MINEFIELD_OFFSET: (f32, f32) = (BORDER_SIZE.0, CONTENT_HEIGHT - (BORDER_SIZE.1 * 5.0));
@@ -37,6 +40,7 @@ fn main() {
         .init_resource::<Minefield>()
         .init_resource::<MinefieldSpriteSheet>()
         .init_resource::<BorderSpriteSheet>()
+        .init_resource::<FaceSpriteSheet>()
         .add_systems(Startup, setup)
         .add_systems(Update, close_on_esc)
         .add_systems(
@@ -148,7 +152,7 @@ enum BorderSpriteIndex {
     TopRightCorner,
     BottomLeftCorner,
     BottomRightCorner,
-    Empty
+    Empty,
 }
 
 impl From<BorderSpriteIndex> for usize {
@@ -164,6 +168,69 @@ impl From<BorderSpriteIndex> for usize {
             BorderSpriteIndex::BottomRightCorner => 7,
             BorderSpriteIndex::Empty => 8,
         }
+    }
+}
+
+#[derive(Resource)]
+struct FaceSpriteSheet(Handle<TextureAtlasLayout>);
+
+impl FromWorld for FaceSpriteSheet {
+    fn from_world(world: &mut World) -> Self {
+        let texture_atlas = TextureAtlasLayout::from_grid(
+            UVec2::new(FACE_SIZE.0 as u32, FACE_SIZE.1 as u32),
+            4,
+            1,
+            None,
+            Some((0, 48).into()),
+        );
+        let mut texture_atlases = world
+            .get_resource_mut::<Assets<TextureAtlasLayout>>()
+            .unwrap();
+        Self(texture_atlases.add(texture_atlas))
+    }
+}
+
+#[repr(usize)]
+enum FaceSpriteIndex {
+    Idle,
+    Pressed,
+    Lose,
+    Win,
+}
+
+impl From<FaceSpriteIndex> for usize {
+    fn from(value: FaceSpriteIndex) -> Self {
+        match value {
+            FaceSpriteIndex::Idle => 0,
+            FaceSpriteIndex::Pressed => 1,
+            FaceSpriteIndex::Lose => 2,
+            FaceSpriteIndex::Win => 3,
+        }
+    }
+}
+
+struct SpawnFaceSprite {
+    index: FaceSpriteIndex,
+    position: Vec2,
+}
+
+impl Command for SpawnFaceSprite {
+    fn apply(self, world: &mut World) {
+        let texture: Handle<Image> = world.load_asset("spritesheet.png");
+        let texture_atlas: &FaceSpriteSheet = world.resource();
+
+        world.spawn((
+            Sprite {
+                image: texture.clone(),
+                texture_atlas: Some(TextureAtlas {
+                    layout: texture_atlas.0.clone(),
+                    index: self.index.into(),
+                }),
+                anchor: Anchor::TopLeft,
+                ..default()
+            },
+            Transform::from_translation(self.position.extend(0.0)),
+        ));
     }
 }
 
@@ -200,8 +267,26 @@ struct Minefield {
 
 impl FromWorld for Minefield {
     fn from_world(_world: &mut World) -> Self {
-        let cells = vec![vec![MinefieldSpriteIndex::Num as usize as u32; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
-        let hidden = vec![vec![true; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
+        let mut rng = thread_rng();
+
+        let mut mine_locs: HashSet<UVec2> = HashSet::new();
+        while mine_locs.len() < MINE_COUNT {
+            mine_locs.insert(UVec2::new(
+                rng.gen_range(0..MINEFIELD_SIZE.0) as u32,
+                rng.gen_range(0..MINEFIELD_SIZE.1) as u32,
+            ));
+        }
+
+        let mut cells = vec![
+            vec![MinefieldSpriteIndex::Num as usize as u32; MINEFIELD_SIZE.0];
+            MINEFIELD_SIZE.1
+        ];
+
+        for loc in mine_locs {
+            cells[loc.y as usize][loc.x as usize] = MinefieldSpriteIndex::Mine as u32;
+        }
+
+        let hidden = vec![vec![false; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
 
         Self { cells, hidden }
     }
@@ -318,6 +403,15 @@ fn setup(mut commands: Commands, minefield: Res<Minefield>) {
             .into(),
     });
 
+    commands.queue(SpawnFaceSprite {
+        index: FaceSpriteIndex::Idle,
+        position: (
+            (CONTENT_WIDTH / 2.0) - (FACE_SIZE.0 / 2.0),
+            CONTENT_HEIGHT - BORDER_SIZE.1,
+        )
+            .into(),
+    });
+
     for row in 0..minefield.cells.len() {
         for col in 0..minefield.cells[row].len() {
             commands.queue(SpawnMinefieldSprite {
@@ -344,7 +438,7 @@ fn handle_minefield_click(
             .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor).ok())
             .map(|ray| Vec2::new(ray.origin.x.floor(), ray.origin.y.ceil()))
     {
-        if mouse_button_input.just_pressed(MouseButton::Left) {
+        if mouse_button_input.just_released(MouseButton::Left) {
             if pos.x >= MINEFIELD_OFFSET.0
                 && pos.x < MINEFIELD_OFFSET.0 + (MINEFIELD_SIZE.0 as f32 * TILE_SIZE.0)
                 && pos.y <= MINEFIELD_OFFSET.1
