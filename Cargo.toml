@@ -31,7 +31,14 @@ opt-level = "s"
 strip = "debuginfo"
 
 [dependencies]
-bevy = { version = "0.15.0-rc.3", features = ["dynamic_linking", "wav", "wayland"] }
+bevy = { version = "0.15.0-rc.3", features = ["wav", "wayland"] }
 log = { version = "*", features = ["max_level_debug", "release_max_level_warn"] }
 rand = "0.8.5"
 itertools = "0.13.0"
+
+[features]
+dev = [
+    # Improve compile times for dev builds by linking Bevy as a dynamic library.
+    "bevy/dynamic_linking",
+    "bevy/bevy_dev_tools",
+]

@@ -1,7 +1,7 @@
 #![feature(let_chains)]
 
-use bevy::diagnostic::DiagnosticsStore;
-use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
+mod simple_fps;
+
 use bevy::utils::HashSet;
 use bevy::window::PresentMode;
 use bevy::{prelude::*, sprite::Anchor, window::WindowResolution};
@@ -22,7 +22,7 @@ const MINEFIELD_OFFSET: (f32, f32) = (BORDER_SIZE.0, CONTENT_HEIGHT - (BORDER_SI
 
 fn main() {
     App::new()
-        .add_plugins(
+        .add_plugins((
             DefaultPlugins
                 .set(ImagePlugin::default_nearest())
                 .set(WindowPlugin {
@@ -39,27 +39,21 @@ fn main() {
                     }),
                     ..default()
                 }),
-        )
-        .add_plugins(FrameTimeDiagnosticsPlugin::default())
+            simple_fps::plugin,
+        ))
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .init_resource::<Minefield>()
         .init_resource::<MinefieldSpriteSheet>()
         .init_resource::<BorderSpriteSheet>()
         .init_resource::<FaceSpriteSheet>()
         .add_systems(Startup, setup)
-        .add_systems(Update, (close_on_esc, fps_text_update_system))
+        .add_systems(Update, close_on_esc)
         .add_systems(
             Update,
             ((handle_minefield_click, update_minefield_sprites).chain(),),
         )
         .run();
 }
-
-#[derive(Component)]
-struct FpsRoot;
-
-#[derive(Component)]
-struct FpsText;
 
 #[derive(Resource)]
 struct MinefieldSpriteSheet(Handle<TextureAtlasLayout>);
@@ -302,7 +296,7 @@ impl FromWorld for Minefield {
                     continue;
                 }
 
-                cells[y][x] = [
+                cells[y][x] = vec![
                     [0, 1],
                     [0, -1],
                     [1, 0],
@@ -465,50 +459,6 @@ fn setup(mut commands: Commands, minefield: Res<Minefield>) {
             })
         }
     }
-
-    let root = commands
-        .spawn((
-            FpsRoot,
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(1.),
-                right: Val::Auto,
-                top: Val::Percent(1.),
-                bottom: Val::Auto,
-                padding: UiRect::all(Val::Px(4.0)),
-                ..Default::default()
-            },
-            BackgroundColor(Color::BLACK.with_alpha(0.5)),
-            ZIndex(i32::MAX),
-        ))
-        .id();
-
-    let text_fps_label = commands
-        .spawn((
-            Text::new("FPS: "),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(Color::WHITE),
-        ))
-        .id();
-
-    let text_fps = commands
-        .spawn((
-            Text::new("N/A"),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(Color::WHITE),
-            FpsText,
-        ))
-        .id();
-
-    commands
-        .entity(root)
-        .add_children(&[text_fps_label, text_fps]);
 }
 
 fn handle_minefield_click(
@@ -560,45 +510,6 @@ fn update_minefield_sprites(
                     n => MinefieldSpriteIndex::Num as usize + n as usize,
                 }
             }
-        }
-    }
-}
-
-fn fps_text_update_system(
-    diagnostics: Res<DiagnosticsStore>,
-    mut query: Query<(&mut Text, &mut TextColor), With<FpsText>>,
-) {
-    for mut text in &mut query {
-        // try to get a "smoothed" FPS value from Bevy
-        if let Some(value) = diagnostics
-            .get(&FrameTimeDiagnosticsPlugin::FPS)
-            .and_then(|fps| fps.smoothed())
-        {
-            // Format the number as to leave space for 4 digits, just in case,
-            // right-aligned and rounded. This helps readability when the
-            // number changes rapidly.
-            text.0 .0 = format!("{value:>4.0}");
-
-            // Let's make it extra fancy by changing the color of the
-            // text according to the FPS value:
-            text.1 .0 = if value >= 120.0 {
-                // Above 120 FPS, use green color
-                Color::srgb(0.0, 1.0, 0.0)
-            } else if value >= 60.0 {
-                // Between 60-120 FPS, gradually transition from yellow to green
-                Color::srgb((1.0 - (value - 60.0) / (120.0 - 60.0)) as f32, 1.0, 0.0)
-            } else if value >= 30.0 {
-                // Between 30-60 FPS, gradually transition from red to yellow
-                Color::srgb(1.0, ((value - 30.0) / (60.0 - 30.0)) as f32, 0.0)
-            } else {
-                // Below 30 FPS, use red color
-                Color::srgb(1.0, 0.0, 0.0)
-            }
-        } else {
-            // display "N/A" if we can't get an FPS measurement
-            // add an extra space to preserve alignment
-            text.0 .0 = " N/A".into();
-            text.1 .0 = Color::WHITE;
         }
     }
 }
