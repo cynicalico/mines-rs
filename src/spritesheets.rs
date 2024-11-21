@@ -1,60 +1,25 @@
-use crate::{MinefieldData, MINEFIELD_OFFSET};
 use bevy::prelude::*;
-use bevy::sprite::Anchor;
 
-pub const TILE_SIZE: (f32, f32) = (16.0, 16.0);
-pub const BORDER_SIZE: (f32, f32) = (8.0, 8.0);
-pub const FACE_SIZE: (f32, f32) = (24.0, 24.0);
+pub const MINEFIELD_SPRITE_SIZE: (f32, f32) = (16.0, 16.0);
+pub const BORDER_SPRITE_SIZE: (f32, f32) = (8.0, 8.0);
+pub const FACE_SPRITE_SIZE: (f32, f32) = (24.0, 24.0);
+pub const SCORE_SPRITE_SIZE: (f32, f32) = (11.0, 20.0);
+pub const SCORE_FRAME_SIZE: (f32, f32) = (35.0, 22.0);
 
 #[derive(Resource)]
-pub struct MinefieldSpriteSheet(Handle<TextureAtlasLayout>);
+pub struct MinefieldSpriteSheet(pub Handle<TextureAtlasLayout>);
 
 impl FromWorld for MinefieldSpriteSheet {
     fn from_world(world: &mut World) -> Self {
         let texture_atlas = TextureAtlasLayout::from_grid(
-            UVec2::new(TILE_SIZE.0 as u32, TILE_SIZE.1 as u32),
+            UVec2::new(
+                MINEFIELD_SPRITE_SIZE.0 as u32,
+                MINEFIELD_SPRITE_SIZE.1 as u32,
+            ),
             5,
             3,
             None,
             None,
-        );
-        let mut texture_atlases = world
-            .get_resource_mut::<Assets<TextureAtlasLayout>>()
-            .unwrap();
-        Self(texture_atlases.add(texture_atlas))
-    }
-}
-
-#[derive(Resource)]
-pub struct BorderSpriteSheet(Handle<TextureAtlasLayout>);
-
-impl FromWorld for BorderSpriteSheet {
-    fn from_world(world: &mut World) -> Self {
-        let texture_atlas = TextureAtlasLayout::from_grid(
-            UVec2::new(BORDER_SIZE.0 as u32, BORDER_SIZE.1 as u32),
-            2,
-            5,
-            None,
-            Some((80, 0).into()),
-        );
-        let mut texture_atlases = world
-            .get_resource_mut::<Assets<TextureAtlasLayout>>()
-            .unwrap();
-        Self(texture_atlases.add(texture_atlas))
-    }
-}
-
-#[derive(Resource)]
-pub struct FaceSpriteSheet(Handle<TextureAtlasLayout>);
-
-impl FromWorld for FaceSpriteSheet {
-    fn from_world(world: &mut World) -> Self {
-        let texture_atlas = TextureAtlasLayout::from_grid(
-            UVec2::new(FACE_SIZE.0 as u32, FACE_SIZE.1 as u32),
-            4,
-            1,
-            None,
-            Some((0, 48).into()),
         );
         let mut texture_atlases = world
             .get_resource_mut::<Assets<TextureAtlasLayout>>()
@@ -83,6 +48,25 @@ impl From<MinefieldSpriteIndex> for usize {
             MinefieldSpriteIndex::MineHit => 12,
             MinefieldSpriteIndex::MineMissed => 13,
         }
+    }
+}
+
+#[derive(Resource)]
+pub struct BorderSpriteSheet(pub Handle<TextureAtlasLayout>);
+
+impl FromWorld for BorderSpriteSheet {
+    fn from_world(world: &mut World) -> Self {
+        let texture_atlas = TextureAtlasLayout::from_grid(
+            UVec2::new(BORDER_SPRITE_SIZE.0 as u32, BORDER_SPRITE_SIZE.1 as u32),
+            9,
+            1,
+            None,
+            Some((0, 48).into()),
+        );
+        let mut texture_atlases = world
+            .get_resource_mut::<Assets<TextureAtlasLayout>>()
+            .unwrap();
+        Self(texture_atlases.add(texture_atlas))
     }
 }
 
@@ -115,6 +99,25 @@ impl From<BorderSpriteIndex> for usize {
     }
 }
 
+#[derive(Resource)]
+pub struct FaceSpriteSheet(pub Handle<TextureAtlasLayout>);
+
+impl FromWorld for FaceSpriteSheet {
+    fn from_world(world: &mut World) -> Self {
+        let texture_atlas = TextureAtlasLayout::from_grid(
+            UVec2::new(FACE_SPRITE_SIZE.0 as u32, FACE_SPRITE_SIZE.1 as u32),
+            4,
+            1,
+            None,
+            Some((0, 56).into()),
+        );
+        let mut texture_atlases = world
+            .get_resource_mut::<Assets<TextureAtlasLayout>>()
+            .unwrap();
+        Self(texture_atlases.add(texture_atlas))
+    }
+}
+
 #[repr(usize)]
 pub enum FaceSpriteIndex {
     Idle,
@@ -134,83 +137,21 @@ impl From<FaceSpriteIndex> for usize {
     }
 }
 
-pub struct SpawnMinefieldSprite {
-    pub(crate) index: MinefieldSpriteIndex,
-    pub(crate) minefield_data: MinefieldData,
-    pub(crate) position: Vec2,
-}
+#[derive(Resource)]
+pub struct ScoreSpriteSheet(pub Handle<TextureAtlasLayout>);
 
-impl Command for SpawnMinefieldSprite {
-    fn apply(self, world: &mut World) {
-        let texture: Handle<Image> = world.load_asset("spritesheet.png");
-        let texture_atlas: &MinefieldSpriteSheet = world.resource();
-
-        world.spawn((
-            Sprite {
-                image: texture.clone(),
-                texture_atlas: Some(TextureAtlas {
-                    layout: texture_atlas.0.clone(),
-                    index: self.index.into(),
-                }),
-                anchor: Anchor::TopLeft,
-                ..default()
-            },
-            Transform::from_xyz(
-                MINEFIELD_OFFSET.0 + self.position.x,
-                MINEFIELD_OFFSET.1 - self.position.y,
-                0.0,
-            ),
-            self.minefield_data,
-        ));
-    }
-}
-
-pub struct SpawnFaceSprite {
-    pub(crate) index: FaceSpriteIndex,
-    pub(crate) position: Vec2,
-}
-
-impl Command for SpawnFaceSprite {
-    fn apply(self, world: &mut World) {
-        let texture: Handle<Image> = world.load_asset("spritesheet.png");
-        let texture_atlas: &FaceSpriteSheet = world.resource();
-
-        world.spawn((
-            Sprite {
-                image: texture.clone(),
-                texture_atlas: Some(TextureAtlas {
-                    layout: texture_atlas.0.clone(),
-                    index: self.index.into(),
-                }),
-                anchor: Anchor::TopLeft,
-                ..default()
-            },
-            Transform::from_translation(self.position.extend(0.0)),
-        ));
-    }
-}
-
-pub struct SpawnBorderSprite {
-    pub(crate) index: BorderSpriteIndex,
-    pub(crate) position: Vec2,
-}
-
-impl Command for SpawnBorderSprite {
-    fn apply(self, world: &mut World) {
-        let texture: Handle<Image> = world.load_asset("spritesheet.png");
-        let texture_atlas: &BorderSpriteSheet = world.resource();
-
-        world.spawn((
-            Sprite {
-                image: texture.clone(),
-                texture_atlas: Some(TextureAtlas {
-                    layout: texture_atlas.0.clone(),
-                    index: self.index.into(),
-                }),
-                anchor: Anchor::TopLeft,
-                ..default()
-            },
-            Transform::from_translation(self.position.extend(0.0)),
-        ));
+impl FromWorld for ScoreSpriteSheet {
+    fn from_world(world: &mut World) -> Self {
+        let texture_atlas = TextureAtlasLayout::from_grid(
+            UVec2::new(SCORE_SPRITE_SIZE.0 as u32, SCORE_SPRITE_SIZE.1 as u32),
+            6,
+            2,
+            None,
+            Some((0, 80).into()),
+        );
+        let mut texture_atlases = world
+            .get_resource_mut::<Assets<TextureAtlasLayout>>()
+            .unwrap();
+        Self(texture_atlases.add(texture_atlas))
     }
 }

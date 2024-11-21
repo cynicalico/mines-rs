@@ -3,14 +3,19 @@ use bevy::prelude::*;
 use bevy::utils::HashSet;
 use rand::prelude::*;
 
-pub const MINEFIELD_SIZE: (usize, usize) = (30, 16);
-pub const MINE_COUNT: usize = 99;
+pub const MINEFIELD_SIZE: (usize, usize) = (8, 8);
+pub const MINE_COUNT: usize = 10;
 
 #[derive(Resource)]
 pub struct Minefield {
-    pub(crate) cells: Vec<Vec<u32>>,
-    pub(crate) flags: Vec<Vec<bool>>,
-    pub(crate) hidden: Vec<Vec<bool>>,
+    pub cells: Vec<Vec<u32>>,
+    pub flags: Vec<Vec<bool>>,
+    pub hidden: Vec<Vec<bool>>,
+}
+
+#[derive(Component)]
+pub struct MinefieldData {
+    pub position: (usize, usize),
 }
 
 impl FromWorld for Minefield {
