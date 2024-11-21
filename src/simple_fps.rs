@@ -9,6 +9,13 @@ struct FpsRoot;
 #[derive(Component)]
 struct FpsText;
 
+#[derive(Component)]
+struct FpsThresholds {
+    max: f64,
+    stable: f64,
+    low: f64,
+}
+
 pub(super) fn plugin(app: &mut App) {
     app.add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_systems(Startup, setup_fps_text)
@@ -53,6 +60,11 @@ fn setup_fps_text(mut commands: Commands) {
             },
             TextColor(Color::WHITE),
             FpsText,
+            FpsThresholds {
+                max: 60.0,
+                stable: 45.0,
+                low: 30.0,
+            },
         ))
         .id();
 
@@ -63,7 +75,7 @@ fn setup_fps_text(mut commands: Commands) {
 
 fn update_fps_text(
     diagnostics: Res<DiagnosticsStore>,
-    mut query: Query<(&mut Text, &mut TextColor), With<FpsText>>,
+    mut query: Query<(&mut Text, &mut TextColor, &FpsThresholds), With<FpsText>>,
 ) {
     for mut text in &mut query {
         if let Some(value) = diagnostics
@@ -72,12 +84,20 @@ fn update_fps_text(
         {
             text.0 .0 = format!("{value:>4.0}");
 
-            text.1 .0 = if value >= 120.0 {
+            text.1 .0 = if value >= text.2.max {
                 Color::srgb(0.0, 1.0, 0.0)
-            } else if value >= 60.0 {
-                Color::srgb((1.0 - (value - 60.0) / (120.0 - 60.0)) as f32, 1.0, 0.0)
-            } else if value >= 30.0 {
-                Color::srgb(1.0, ((value - 30.0) / (60.0 - 30.0)) as f32, 0.0)
+            } else if value >= text.2.stable {
+                Color::srgb(
+                    (1.0 - (value - text.2.stable) / (text.2.max - text.2.stable)) as f32,
+                    1.0,
+                    0.0,
+                )
+            } else if value >= text.2.low {
+                Color::srgb(
+                    1.0,
+                    ((value - text.2.low) / (text.2.stable - text.2.low)) as f32,
+                    0.0,
+                )
             } else {
                 Color::srgb(1.0, 0.0, 0.0)
             }
