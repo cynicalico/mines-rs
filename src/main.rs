@@ -1,14 +1,17 @@
 #![feature(let_chains)]
 
+use bevy::diagnostic::DiagnosticsStore;
+use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::utils::HashSet;
+use bevy::window::PresentMode;
 use bevy::{prelude::*, sprite::Anchor, window::WindowResolution};
 use rand::prelude::*;
 
 const BACKGROUND_COLOR: Color = Color::hsv(0.0, 0.0, 0.0);
 
-const SCALE: f32 = 4.0;
-const MINEFIELD_SIZE: (usize, usize) = (8, 8);
-const MINE_COUNT: usize = 10;
+const SCALE: f32 = 2.0;
+const MINEFIELD_SIZE: (usize, usize) = (30, 16);
+const MINE_COUNT: usize = 99;
 
 const BORDER_SIZE: (f32, f32) = (8.0, 8.0);
 const TILE_SIZE: (f32, f32) = (16.0, 16.0);
@@ -24,6 +27,7 @@ fn main() {
                 .set(ImagePlugin::default_nearest())
                 .set(WindowPlugin {
                     primary_window: Some(Window {
+                        present_mode: PresentMode::AutoNoVsync,
                         title: "mines-rs".into(),
                         position: WindowPosition::Centered(MonitorSelection::Primary),
                         resolution: WindowResolution::new(
@@ -36,19 +40,26 @@ fn main() {
                     ..default()
                 }),
         )
+        .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .init_resource::<Minefield>()
         .init_resource::<MinefieldSpriteSheet>()
         .init_resource::<BorderSpriteSheet>()
         .init_resource::<FaceSpriteSheet>()
         .add_systems(Startup, setup)
-        .add_systems(Update, close_on_esc)
+        .add_systems(Update, (close_on_esc, fps_text_update_system))
         .add_systems(
             Update,
             ((handle_minefield_click, update_minefield_sprites).chain(),),
         )
         .run();
 }
+
+#[derive(Component)]
+struct FpsRoot;
+
+#[derive(Component)]
+struct FpsText;
 
 #[derive(Resource)]
 struct MinefieldSpriteSheet(Handle<TextureAtlasLayout>);
@@ -269,6 +280,11 @@ impl FromWorld for Minefield {
     fn from_world(_world: &mut World) -> Self {
         let mut rng = thread_rng();
 
+        let mut cells = vec![
+            vec![MinefieldSpriteIndex::Num as usize as u32; MINEFIELD_SIZE.0];
+            MINEFIELD_SIZE.1
+        ];
+
         let mut mine_locs: HashSet<UVec2> = HashSet::new();
         while mine_locs.len() < MINE_COUNT {
             mine_locs.insert(UVec2::new(
@@ -276,14 +292,40 @@ impl FromWorld for Minefield {
                 rng.gen_range(0..MINEFIELD_SIZE.1) as u32,
             ));
         }
-
-        let mut cells = vec![
-            vec![MinefieldSpriteIndex::Num as usize as u32; MINEFIELD_SIZE.0];
-            MINEFIELD_SIZE.1
-        ];
-
         for loc in mine_locs {
             cells[loc.y as usize][loc.x as usize] = MinefieldSpriteIndex::Mine as u32;
+        }
+
+        for y in 0..MINEFIELD_SIZE.1 {
+            for x in 0..MINEFIELD_SIZE.0 {
+                if cells[y][x] == MinefieldSpriteIndex::Mine as u32 {
+                    continue;
+                }
+
+                cells[y][x] = [
+                    [0, 1],
+                    [0, -1],
+                    [1, 0],
+                    [-1, 0],
+                    [1, 1],
+                    [1, -1],
+                    [-1, 1],
+                    [-1, -1],
+                ]
+                .into_iter()
+                .map(|offset| (x as i32 + offset[1], y as i32 + offset[0]))
+                .filter(|coord| {
+                    coord.0 >= 0
+                        && coord.0 < MINEFIELD_SIZE.0 as i32
+                        && coord.1 >= 0
+                        && coord.1 < MINEFIELD_SIZE.1 as i32
+                })
+                .map(|coord| {
+                    cells[coord.1 as usize][coord.0 as usize] == MinefieldSpriteIndex::Mine as u32
+                })
+                .filter(|is_mine| *is_mine)
+                .count() as u32;
+            }
         }
 
         let hidden = vec![vec![false; MINEFIELD_SIZE.0]; MINEFIELD_SIZE.1];
@@ -423,6 +465,50 @@ fn setup(mut commands: Commands, minefield: Res<Minefield>) {
             })
         }
     }
+
+    let root = commands
+        .spawn((
+            FpsRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Percent(1.),
+                right: Val::Auto,
+                top: Val::Percent(1.),
+                bottom: Val::Auto,
+                padding: UiRect::all(Val::Px(4.0)),
+                ..Default::default()
+            },
+            BackgroundColor(Color::BLACK.with_alpha(0.5)),
+            ZIndex(i32::MAX),
+        ))
+        .id();
+
+    let text_fps_label = commands
+        .spawn((
+            Text::new("FPS: "),
+            TextFont {
+                font_size: 16.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+        ))
+        .id();
+
+    let text_fps = commands
+        .spawn((
+            Text::new("N/A"),
+            TextFont {
+                font_size: 16.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            FpsText,
+        ))
+        .id();
+
+    commands
+        .entity(root)
+        .add_children(&[text_fps_label, text_fps]);
 }
 
 fn handle_minefield_click(
@@ -449,8 +535,8 @@ fn handle_minefield_click(
                 let minefield_col =
                     ((pos.x - MINEFIELD_OFFSET.0) as u32 / TILE_SIZE.0 as u32) as usize;
 
-                minefield.hidden[minefield_row][minefield_col] = false;
-                // info!("{}, {}", minefield_row, minefield_col);
+                let visibility = minefield.hidden[minefield_row][minefield_col];
+                minefield.hidden[minefield_row][minefield_col] = !visibility;
             }
         }
     }
@@ -474,6 +560,45 @@ fn update_minefield_sprites(
                     n => MinefieldSpriteIndex::Num as usize + n as usize,
                 }
             }
+        }
+    }
+}
+
+fn fps_text_update_system(
+    diagnostics: Res<DiagnosticsStore>,
+    mut query: Query<(&mut Text, &mut TextColor), With<FpsText>>,
+) {
+    for mut text in &mut query {
+        // try to get a "smoothed" FPS value from Bevy
+        if let Some(value) = diagnostics
+            .get(&FrameTimeDiagnosticsPlugin::FPS)
+            .and_then(|fps| fps.smoothed())
+        {
+            // Format the number as to leave space for 4 digits, just in case,
+            // right-aligned and rounded. This helps readability when the
+            // number changes rapidly.
+            text.0 .0 = format!("{value:>4.0}");
+
+            // Let's make it extra fancy by changing the color of the
+            // text according to the FPS value:
+            text.1 .0 = if value >= 120.0 {
+                // Above 120 FPS, use green color
+                Color::srgb(0.0, 1.0, 0.0)
+            } else if value >= 60.0 {
+                // Between 60-120 FPS, gradually transition from yellow to green
+                Color::srgb((1.0 - (value - 60.0) / (120.0 - 60.0)) as f32, 1.0, 0.0)
+            } else if value >= 30.0 {
+                // Between 30-60 FPS, gradually transition from red to yellow
+                Color::srgb(1.0, ((value - 30.0) / (60.0 - 30.0)) as f32, 0.0)
+            } else {
+                // Below 30 FPS, use red color
+                Color::srgb(1.0, 0.0, 0.0)
+            }
+        } else {
+            // display "N/A" if we can't get an FPS measurement
+            // add an extra space to preserve alignment
+            text.0 .0 = " N/A".into();
+            text.1 .0 = Color::WHITE;
         }
     }
 }
